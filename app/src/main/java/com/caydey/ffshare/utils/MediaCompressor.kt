@@ -309,4 +309,4 @@ class MediaCompressor(private val context: Context) {
     }
 
     return params.toString()
-}
+    }
