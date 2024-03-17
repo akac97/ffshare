@@ -1,6 +1,4 @@
 package com.caydey.ffshare.utils
-
-
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
@@ -22,19 +20,14 @@ import com.caydey.ffshare.utils.logs.Log
 import com.caydey.ffshare.utils.logs.LogsDbHelper
 import timber.log.Timber
 import java.util.*
-
-
 class MediaCompressor(private val context: Context) {
     private val utils: Utils by lazy { Utils(context) }
     private val settings: Settings by lazy { Settings(context) }
     private val logsDbHelper by lazy { LogsDbHelper(context) }
-
-
     fun cancelAllOperations() {
         Timber.d("Canceling all ffmpeg operations")
         FFmpegKit.cancel()
     }
-
     @SuppressLint("SetTextI18n")
     fun compressSingleFile(
         activity: Activity,
@@ -51,53 +44,35 @@ class MediaCompressor(private val context: Context) {
         val txtProcessedTimeTotal: TextView = activity.findViewById(R.id.txtProcessedTimeTotal)
         val txtProcessedPercent: TextView = activity.findViewById(R.id.txtProcessedPercent)
         val processedTableRow: TableRow = activity.findViewById(R.id.processedTableRow)
-
-        // cancel button
         val btnCancel: Button = activity.findViewById(R.id.btnCancel)
         btnCancel.setOnClickListener {
             Toast.makeText(context, context.getString(R.string.ffmpeg_canceled), Toast.LENGTH_LONG).show()
-            // cancel all ffmpeg operations
             cancelAllOperations()
-
-            failureHandler() // a cancel is a fail
+            failureHandler()
         }
-
         val mediaType = utils.getMediaType(inputFileUri)
-        if (!utils.supportedMediaType(mediaType)) { // not supported show error
+        if (!utils.supportedMediaType(mediaType)) {
             Toast.makeText(context, context.getString(R.string.error_unknown_filetype), Toast.LENGTH_LONG).show()
             failureHandler()
             return
         }
-
-        // don't show progress when compressing images (not possible)
         val showProgress = !utils.isImage(mediaType)
         if (!showProgress) {
             processedTableRow.visibility = View.INVISIBLE
         }
-
         val inputFileName = utils.getFilenameFromUri(inputFileUri) ?: "unknown"
-
-        // get output file, (random uuid, custom name, original name)
         val (outputFile, outputMediaType) = utils.getCacheOutputFile(inputFileUri, mediaType)
-
-        // get Uri from File, needs to be this way not Uri.fromFile(...) to go through security
         val outputFileUri = FileProvider.getUriForFile(context, context.applicationContext.packageName+".fileprovider", outputFile)
-
-        // need to create new saf param as they are one-use
         val mediaInformation = FFprobeKit.getMediaInformation(FFmpegKitConfig.getSafParameterForRead(context, inputFileUri)).mediaInformation
-
         if (mediaInformation == null) {
             Timber.d("Unable to get media information, throwing error")
             Toast.makeText(context, context.getString(R.string.error_invalid_file), Toast.LENGTH_LONG).show()
             failureHandler()
             return
         }
-
-        val inputFileSize = mediaInformation.size.toLong() // get input file size
-
-        var duration = 0 // default duration for image
+        val inputFileSize = mediaInformation.size.toLong()
+        var duration = 0
         if (showProgress) {
-            // invalid video file if ffprobe cant parse duration and size
             if (mediaInformation.duration == null || mediaInformation.size == null) {
                 Timber.d("Unable to get size & duration for media, throwing error")
                 Toast.makeText(context, context.getString(R.string.error_invalid_file), Toast.LENGTH_LONG).show()
@@ -106,14 +81,11 @@ class MediaCompressor(private val context: Context) {
             }
             duration = (mediaInformation.duration.toFloat() * 1_000).toInt()
         }
-
         val params = createFFmpegParams(inputFileUri, mediaInformation, mediaType, outputMediaType)
         val inputSaf: String = FFmpegKitConfig.getSafParameterForRead(context, inputFileUri)
         val outputSaf: String = FFmpegKitConfig.getSafParameterForWrite(context, outputFileUri)
         val command = "-y -i $inputSaf $params $outputSaf"
         val prettyCommand = "ffmpeg -y -i $inputFileName $params ${outputFile.name}"
-
-        // set TextViews
         Handler(Looper.getMainLooper()).post {
             txtFfmpegCommand.text = prettyCommand
             txtInputFile.text = inputFileName
@@ -124,18 +96,14 @@ class MediaCompressor(private val context: Context) {
             txtProcessedTimeTotal.text = utils.millisToMicrowave(duration)
             txtProcessedPercent.text = context.getString(R.string.format_percentage, 0.0f)
         }
-
         Timber.d("Executing ffmpeg command: 'ffmpeg %s'", command)
         FFmpegKit.executeAsync(command, { session ->
-            // completed
-            if (!session.returnCode.isValueSuccess) { // failed
-                if (!session.returnCode.isValueCancel) { // failure was not caused by a cancel
+            if (!session.returnCode.isValueSuccess) {
+                if (!session.returnCode.isValueCancel) {
                     Timber.d("ffmpeg command failed")
                     Handler(Looper.getMainLooper()).post {
                         Toast.makeText(context, context.getString(R.string.ffmpeg_error), Toast.LENGTH_LONG).show()
                     }
-                    // save log
-
                     logsDbHelper.addLog(Log(
                         prettyCommand,
                         inputFileName,
@@ -147,23 +115,20 @@ class MediaCompressor(private val context: Context) {
                     ))
                     failureHandler()
                 }
-            } else { // success
+            } else {
                 Timber.d("ffmpeg command executed successfully")
                 if (settings.copyExifTags && ExifTools.isValidType(mediaType)) {
                     Timber.d("copying exif tags")
                     ExifTools.copyExif(context.contentResolver.openInputStream(inputFileUri)!!, outputFile)
                 }
                 val outputFileCurrentSize = outputFile.length()
-                // """Only the original thread that created a view hierarchy can touch its views."""
                 Handler(Looper.getMainLooper()).post {
-                    // update TextViews to their final values 97.8% -> 100.0%
                     txtProcessedPercent.text = context.getString(R.string.format_percentage, 100.0f)
                     txtProcessedTime.text = utils.millisToMicrowave(duration)
                     if (outputFileCurrentSize > 0) {
                         txtOutputFileSize.text = utils.bytesToHuman(outputFileCurrentSize)
                     }
                 }
-
                 logsDbHelper.addLog(Log(
                     prettyCommand,
                     inputFileName,
@@ -173,13 +138,11 @@ class MediaCompressor(private val context: Context) {
                     inputFileSize,
                     outputFileCurrentSize
                 ))
-                // callback
                 successHandler(outputFileUri, inputFileSize, outputFileCurrentSize)
             }
-        }, { /* logs */ }, { statistics ->
-            // update TextViews with stats
+        }, {  }, { statistics ->
             Handler(Looper.getMainLooper()).post {
-                if (showProgress) { // only show time processed if video
+                if (showProgress) {
                     txtProcessedPercent.text = context.getString(R.string.format_percentage, (statistics.time.toFloat() / duration) * 100)
                     txtProcessedTime.text = utils.millisToMicrowave(statistics.time.toInt())
                 }
@@ -187,42 +150,31 @@ class MediaCompressor(private val context: Context) {
             }
         })
     }
-
     fun compressFiles(activity: Activity, inputFilesUri: ArrayList<Uri>, callback: (uris: ArrayList<Uri>) -> Unit) {
         val txtCommandNumber: TextView = activity.findViewById(R.id.txtCommandNumber)
-
         val inputFilesCount = inputFilesUri.size
-
         val compressedFiles = ArrayList<Uri>()
-
         var totalInputFileSize = 0L
         var totalOutputFileSize = 0L
-
-        // since we are working with callbacks a simple for loop wont work
         lateinit var iteratorFunction: (Int, Boolean) -> Unit
         iteratorFunction = fun(i, error) {
-            // base case
             if (i < inputFilesCount) {
                 Timber.d("Processing %d of %d files", i+1, inputFilesCount)
-
-                if (inputFilesCount > 1) { // show "1 of N" label if N > 1
+                if (inputFilesCount > 1) {
                     Handler(Looper.getMainLooper()).post {
                         txtCommandNumber.text = context.getString(R.string.command_x_of_y, i+1, inputFilesCount)
                     }
                 }
-
                 compressSingleFile(activity, inputFilesUri[i], failureHandler = {
-                    // if 1 file fails don't add it to compressedFiles array
-                    iteratorFunction(i+1, true) // call to self with error flag true
+                    iteratorFunction(i+1, true)
                 }, successHandler = { uri, inputFileSize, outputFileSize ->
                     totalInputFileSize += inputFileSize
                     totalOutputFileSize += outputFileSize
                     compressedFiles.add(uri)
-                    iteratorFunction(i+1, false) // call to self with error flag false
+                    iteratorFunction(i+1, false)
                 })
             }
-            if (i >= inputFilesCount || error) { // end of iterations
-                // show compression percentage as toast message if there was no error
+            if (i >= inputFilesCount || error) {
                 if (settings.showStatusMessages && !error) {
                     val totalOutputFileSizeHuman = utils.bytesToHuman(totalOutputFileSize)
                     val compressionPercentage = (1 - (totalOutputFileSize.toDouble() / totalInputFileSize)) * 100
@@ -235,82 +187,34 @@ class MediaCompressor(private val context: Context) {
                 callback(compressedFiles)
             }
         }
-        iteratorFunction(0, false) // start iterations
+        iteratorFunction(0, false)
     }
-
     private fun createFFmpegParams(inputFile: Uri, mediaInformation: MediaInformation, mediaType: Utils.MediaType, outputMediaType: Utils.MediaType): String {
-        val params = StringJoiner(" ")
-
-        // preset
-        params.add("-preset ${settings.compressionPreset}")
-
-        // video
-        if (utils.isVideo(outputMediaType)) { // check outputMediaType not mediaType because conversions
-            // crf
-            params.add("-crf ${settings.videoCrf}")
-
-            // pixel format
-            params.add("-vf format=yuv420p")
-
-            // h264 codec for mp4
-            if (outputMediaType == Utils.MediaType.MP4) {
-                params.add("-c:v h264")
-            }
-
-            //  max file size (limit the bitrate to achieve this)
-            if (settings.videoMaxFileSize != 0) {
-                // ffmpeg does not like -maxrate & -bufsize params when the output file is webm
-                if (outputMediaType != Utils.MediaType.WEBM) {
-                    val maxBitrate = (settings.videoMaxFileSize / mediaInformation.duration.toFloat().toInt())
-                    Timber.d("Maximum bitrate for targeted filesize (%dK): %dk", settings.videoMaxFileSize, maxBitrate)
-
-                    // audio can have at most one third of the total bitrate
-                    val audioSplit = maxBitrate / 3
-                    // round audio bitrate down to 192,128,96,64,32,24
-                    val audioBitrate = if (audioSplit > 192) 192 // maximum audio bitrate is 192k
-                    else if (audioSplit > 128) 128
-                    else if (audioSplit > 96) 96
-                    else if (audioSplit > 64) 64
-                    else if (audioSplit > 32) 32
-                    else 24 // minimum audio bitrate is 24k
-
-                    // set audio bitrate
-                    params.add("-b:a ${audioBitrate}k")
-
-                    // set max video bitrate
-                    val videoBitrate = (maxBitrate - audioBitrate)
-                    params.add("-maxrate ${videoBitrate}k -bufsize ${videoBitrate}k")
-                }
+    val params = StringJoiner(" ")
+    params.add("-preset ${settings.compressionPreset}")
+    if (utils.isVideo(outputMediaType)) {
+        params.add("-crf ${settings.videoCrf}")
+        params.add("-vf format=yuv420p")
+        if (outputMediaType == Utils.MediaType.MP4) {
+            params.add("-c:v h264")
+        }
+        if (settings.videoMaxFileSize != 0) {
+            if (outputMediaType != Utils.MediaType.WEBM) {
+                val maxBitrate = (settings.videoMaxFileSize / mediaInformation.duration.toFloat().toInt())
+                Timber.d("Maximum bitrate for targeted filesize (%dK): %dk", settings.videoMaxFileSize, maxBitrate)
+                val audioSplit = maxBitrate / 3
+                val audioBitrate = if (audioSplit > 192) 192 else if (audioSplit > 128) 128 else if (audioSplit > 96) 96 else if (audioSplit > 64) 64 else if (audioSplit > 32) 32 else 24
+                params.add("-b:a ${audioBitrate}k")
+                val videoBitrate = (maxBitrate - audioBitrate)
+                params.add("-maxrate ${videoBitrate}k -bufsize ${videoBitrate}k")
             }
         }
-
-        // max resolution (only affects videos and images)
-        if (utils.isVideo(mediaType) || utils.isImage(mediaType)) {
-            val (resolutionWidth, resolutionHeight) = utils.getMediaResolution(inputFile, mediaType)
-            // portrait is when height is bigger than width
-            val isPortrait = resolutionHeight > resolutionWidth
-            // the resolution is the smaller of the dimensions
-            val resolution = if (isPortrait) resolutionWidth else resolutionHeight
-            // get max resolution from settings
-            val maxResolution = if (utils.isImage(mediaType)) settings.maxImageResolution else settings.maxVideoResolution
-            // only reduce resolution
-            if (resolution > maxResolution && maxResolution != 0) {
-                if (isPortrait) {
-                    // rescale width
-                    params.add("-vf scale=$maxResolution:-1,setsar=1")
-                } else {
-                    // rescale height
-                    params.add("-vf scale=-1:$maxResolution,setsar=1")
-                }
-            }
+    } else if (utils.isImage(outputMediaType)) {
+        if (outputMediaType == Utils.MediaType.JPEG) {
+            params.add("-c:v mjpeg")
+        } else if (outputMediaType == Utils.MediaType.WEBP) {
+            params.add("-c:v libwebp")
         }
-
-        // jpeg quality
-        if (mediaType == Utils.MediaType.JPEG) {
-            val qscale = settings.jpegQscale
-            params.add("-qscale:v $qscale")
-        }
-
-        return params.toString()
     }
+    return params.toString()
 }
