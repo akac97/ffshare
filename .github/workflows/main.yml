@@ -8,6 +8,8 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/akac97/action-archlinux-docker-build:main
 
     steps:
     - name: Check out repository
