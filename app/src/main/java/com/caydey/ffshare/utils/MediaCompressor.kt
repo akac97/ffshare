@@ -190,31 +190,32 @@ class MediaCompressor(private val context: Context) {
         iteratorFunction(0, false)
     }
     private fun createFFmpegParams(inputFile: Uri, mediaInformation: MediaInformation, mediaType: Utils.MediaType, outputMediaType: Utils.MediaType): String {
-    val params = StringJoiner(" ")
-    params.add("-preset ${settings.compressionPreset}")
-    if (utils.isVideo(outputMediaType)) {
-        params.add("-crf ${settings.videoCrf}")
-        params.add("-vf format=yuv420p")
-        if (outputMediaType == Utils.MediaType.MP4) {
-            params.add("-c:v h264")
-        }
-        if (settings.videoMaxFileSize != 0) {
-            if (outputMediaType != Utils.MediaType.WEBM) {
-                val maxBitrate = (settings.videoMaxFileSize / mediaInformation.duration.toFloat().toInt())
-                Timber.d("Maximum bitrate for targeted filesize (%dK): %dk", settings.videoMaxFileSize, maxBitrate)
-                val audioSplit = maxBitrate / 3
-                val audioBitrate = if (audioSplit > 192) 192 else if (audioSplit > 128) 128 else if (audioSplit > 96) 96 else if (audioSplit > 64) 64 else if (audioSplit > 32) 32 else 24
-                params.add("-b:a ${audioBitrate}k")
-                val videoBitrate = (maxBitrate - audioBitrate)
-                params.add("-maxrate ${videoBitrate}k -bufsize ${videoBitrate}k")
+        val params = StringJoiner(" ")
+        params.add("-preset ${settings.compressionPreset}")
+        if (utils.isVideo(outputMediaType)) {
+            params.add("-crf ${settings.videoCrf}")
+            params.add("-vf format=yuv420p")
+            if (outputMediaType == Utils.MediaType.MP4) {
+                params.add("-c:v h264")
+            }
+            if (settings.videoMaxFileSize != 0) {
+                if (outputMediaType != Utils.MediaType.WEBM) {
+                    val maxBitrate = (settings.videoMaxFileSize / mediaInformation.duration.toFloat().toInt())
+                    Timber.d("Maximum bitrate for targeted filesize (%dK): %dk", settings.videoMaxFileSize, maxBitrate)
+                    val audioSplit = maxBitrate / 3
+                    val audioBitrate = if (audioSplit > 192) 192 else if (audioSplit > 128) 128 else if (audioSplit > 96) 96 else if (audioSplit > 64) 64 else if (audioSplit > 32) 32 else 24
+                    params.add("-b:a ${audioBitrate}k")
+                    val videoBitrate = (maxBitrate - audioBitrate)
+                    params.add("-maxrate ${videoBitrate}k -bufsize ${videoBitrate}k")
+                }
+            }
+        } else if (utils.isImage(outputMediaType)) {
+            if (outputMediaType == Utils.MediaType.JPEG) {
+                params.add("-c:v mjpeg")
+            } else if (outputMediaType == Utils.MediaType.WEBP) {
+                params.add("-c:v libwebp")
             }
         }
-    } else if (utils.isImage(outputMediaType)) {
-        if (outputMediaType == Utils.MediaType.JPEG) {
-            params.add("-c:v mjpeg")
-        } else if (outputMediaType == Utils.MediaType.WEBP) {
-            params.add("-c:v libwebp")
-        }
+        return params.toString()
     }
-    return params.toString()
 }
